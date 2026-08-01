@@ -47,8 +47,12 @@ _ACTION_LABELS: dict[ActionType, str] = {
     ActionType.OPEN_APP: "🚀 Launch",
     ActionType.GESTURE_ON: "✅ Gestures ON",
     ActionType.GESTURE_OFF: "⛔ Gestures OFF",
+    ActionType.HAND_LOST: "🙈 Hand Lost",
     ActionType.NONE: "✋ Idle",
 }
+
+# Warning colour used when the hand leaves the frame (cursor frozen)
+_HAND_LOST_COLOR = "#ffcc66"
 
 
 class HUD:
@@ -146,7 +150,9 @@ class HUD:
 
             # Source indicator
             source_icon = "🎤" if event.source == "voice" else "👋"
-            self._label.config(text=f"{source_icon}  {label}")
+            # Hand-lost state gets a warning colour so the freeze is obvious
+            color = _HAND_LOST_COLOR if event.action == ActionType.HAND_LOST else config.HUD_TEXT_COLOR
+            self._label.config(text=f"{source_icon}  {label}", fg=color)
 
             # Reset opacity when active
             self._root.attributes("-alpha", 0.9)

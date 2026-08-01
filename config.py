@@ -117,11 +117,21 @@ RIGHT_CLICK_THRESHOLD: float = _env_float("GESTUREOS_RIGHT_CLICK_THRESHOLD", 0.0
 SWIPE_VELOCITY_THRESHOLD: float = _env_float("GESTUREOS_SWIPE_VELOCITY_THRESHOLD", 0.15)
 SCROLL_SENSITIVITY: int = _env_int("GESTUREOS_SCROLL_SENSITIVITY", 3)
 DRAG_HOLD_FRAMES: int = _env_int("GESTUREOS_DRAG_HOLD_FRAMES", 5)
+# How long the hand may be absent (ms) before it is declared "lost". Tolerates
+# brief tracking blips without freezing/releasing the cursor.
+HAND_LOST_GRACE_MS: int = _env_int("GESTUREOS_HAND_LOST_GRACE_MS", 200)
 
 # ---------------------------------------------------------------------------
 # Cursor mapping
 # ---------------------------------------------------------------------------
-CURSOR_SMOOTHING_ALPHA: float = _env_float("GESTUREOS_CURSOR_SMOOTHING_ALPHA", 0.4)
+# One Euro filter — adaptive cursor smoothing. Heavy smoothing when the hand
+# is still (kills tremor jitter), near-zero lag in fast motion.
+ONE_EURO_MIN_CUTOFF: float = _env_float("GESTUREOS_ONE_EURO_MIN_CUTOFF", 1.0)
+ONE_EURO_BETA: float = _env_float("GESTUREOS_ONE_EURO_BETA", 0.05)
+ONE_EURO_D_CUTOFF: float = _env_float("GESTUREOS_ONE_EURO_D_CUTOFF", 1.0)
+# Cursor dead zone in screen pixels — suppresses micro-jitter while the hand
+# is held still. 3–6 recommended; larger feels sticky.
+CURSOR_DEAD_ZONE_PX: int = _env_int("GESTUREOS_CURSOR_DEAD_ZONE_PX", 4)
 CURSOR_DEAD_ZONE: float = _env_float("GESTUREOS_CURSOR_DEAD_ZONE", 0.02)
 CURSOR_FRAME_MARGIN: float = _env_float("GESTUREOS_CURSOR_FRAME_MARGIN", 0.1)
 

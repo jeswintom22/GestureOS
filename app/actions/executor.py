@@ -83,6 +83,7 @@ class ActionExecutor:
             ActionType.SWITCH_WINDOW: lambda _: self._window.switch_window(),
             ActionType.SCREENSHOT: lambda _: self._window.screenshot(),
             ActionType.OPEN_APP: self._on_open_app,
+            ActionType.HAND_LOST: lambda _: None,  # HUD feedback only
             ActionType.NONE: lambda _: None,
         }
 

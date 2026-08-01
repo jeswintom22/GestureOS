@@ -49,5 +49,6 @@ class ActionType(Enum):
     # --- System ---
     GESTURE_ON = auto()
     GESTURE_OFF = auto()
+    HAND_LOST = auto()         # Hand left the frame (HUD feedback only)
     STOP = auto()              # Graceful shutdown
     NONE = auto()              # No action (idle / open palm)

@@ -72,6 +72,12 @@ class GestureOSController:
         self.gesture_enabled = True
         self.stop_event = threading.Event()
 
+        # Hand-loss tracking: timestamp of the last frame where a hand was
+        # seen, and whether the hand is currently declared "lost" (past the
+        # grace period).
+        self._last_hand_time = 0.0
+        self._hand_lost = True
+
     def start(self) -> None:
         """Start background threads and HUD."""
         log.info("Starting GestureOS...")
@@ -119,6 +125,12 @@ class GestureOSController:
                 hands = self.detector.detect(rgb_frame, w, h)
 
                 if hands and self.gesture_enabled:
+                    # Hand is present — reset the loss timer
+                    self._last_hand_time = time.monotonic()
+                    if self._hand_lost:
+                        self._hand_lost = False
+                        log.debug("Hand re-acquired")
+
                     # Classify first hand
                     event = self.classifier.classify(hands[0], w, h)
 
@@ -132,8 +144,26 @@ class GestureOSController:
                     elif event.action != ActionType.NONE:
                         self.bus.push(event)
 
-                elif not hands:
-                    self.classifier.reset()
+                elif not hands and self.gesture_enabled:
+                    # Grace period: only declare the hand "lost" after it has
+                    # been absent for HAND_LOST_GRACE_MS. This tolerates brief
+                    # tracking blips without freezing the cursor — the
+                    # classifier is NOT reset during grace, so a returning
+                    # hand resumes seamlessly.
+                    if not self._hand_lost and (
+                        (time.monotonic() - self._last_hand_time) * 1000
+                        >= config.HAND_LOST_GRACE_MS
+                    ):
+                        self._hand_lost = True
+                        log.info("Hand lost")
+                        self.bus.push(GestureEvent(action=ActionType.HAND_LOST))
+                        # If we were dragging, release the mouse button so it
+                        # doesn't stay stuck. (Check dragging BEFORE reset —
+                        # reset() clears the drag state.)
+                        if self.classifier.dragging:
+                            log.info("Releasing drag after hand loss")
+                            self.bus.push(GestureEvent(action=ActionType.DRAG_END))
+                        self.classifier.reset()
 
                 # Optional debug window
                 if self.debug or config.DEBUG_SHOW_CAMERA:

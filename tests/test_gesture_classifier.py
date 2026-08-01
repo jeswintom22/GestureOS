@@ -2,6 +2,9 @@
 Unit tests for GestureClassifier.
 """
 
+import time
+
+import config
 from app.core.actions import ActionType
 from app.gestures.classifier import GestureClassifier
 from app.gestures.detector import HandResult, Landmark
@@ -89,3 +92,77 @@ def test_pinch_left_click():
 
     event = classifier.classify(hand, 640, 480)
     assert event.action == ActionType.LEFT_CLICK
+
+
+def test_cursor_dead_zone_suppresses_hold():
+    """Holding the hand still must not emit further cursor moves."""
+    classifier = GestureClassifier()
+    hand = _make_dummy_hand([0, 1, 0, 0, 0])
+
+    first = classifier.classify(hand, 640, 480)
+    assert first.action == ActionType.MOVE_CURSOR
+
+    # Same position again → within the dead zone → no move
+    second = classifier.classify(hand, 640, 480)
+    assert second.action == ActionType.NONE
+
+
+def test_reentry_anchor_no_jump():
+    """
+    After hand loss, re-entering at a different spot must not teleport the
+    cursor; it holds, then resumes relative to the anchor.
+    """
+    classifier = GestureClassifier()
+    hand = _make_dummy_hand([0, 1, 0, 0, 0])
+
+    first = classifier.classify(hand, 640, 480)
+    assert first.action == ActionType.MOVE_CURSOR
+    original = first.value
+
+    # Hand lost
+    classifier.reset()
+
+    # Hand re-enters far to the right → cursor must hold (no jump)
+    hand.landmarks[8] = Landmark(0.7, 0.2, 0, 0, 0)
+    reentry = classifier.classify(hand, 640, 480)
+    assert reentry.action == ActionType.NONE
+
+    # Simulate a realistic frame interval so the One Euro filter has time to
+    # track, then move the hand clearly beyond the dead zone.
+    time.sleep(1 / 30)
+    hand.landmarks[8] = Landmark(0.78, 0.2, 0, 0, 0)
+    moved = classifier.classify(hand, 640, 480)
+    assert moved.action == ActionType.MOVE_CURSOR
+
+    # The resumed position is near the held cursor, NOT the raw mapped
+    # position of the re-entered hand.
+    margin = config.CURSOR_FRAME_MARGIN
+    raw_mapped_x = int(
+        (1.0 - (0.78 - margin) / (1 - 2 * margin)) * config.SCREEN_WIDTH
+    )
+    assert abs(moved.value[0] - original[0]) < abs(raw_mapped_x - original[0]), moved.value
+
+
+def test_drag_reports_position_and_release_on_reset():
+    """
+    Drags report (smoothed) cursor positions, and a reset while dragging
+    clears the drag state so the caller can emit DRAG_END.
+    """
+    classifier = GestureClassifier()
+    fist = _make_dummy_hand([0, 0, 0, 0, 0])
+
+    # Hold the fist long enough to start a drag
+    start = None
+    for _ in range(config.DRAG_HOLD_FRAMES):
+        start = classifier.classify(fist, 640, 480)
+    assert start.action == ActionType.DRAG_START
+    assert classifier.dragging is True
+
+    # While dragging, movement is still reported
+    move = classifier.classify(fist, 640, 480)
+    assert move.action == ActionType.MOVE_CURSOR
+    assert isinstance(move.value, tuple) and len(move.value) == 2
+
+    # Hand loss → reset clears drag state (caller emits DRAG_END)
+    classifier.reset()
+    assert classifier.dragging is False

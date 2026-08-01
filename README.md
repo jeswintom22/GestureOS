@@ -98,7 +98,11 @@ Key variables:
 | `GESTUREOS_RIGHT_CLICK_THRESHOLD` | `0.05` | Middle–thumb distance for right-click |
 | `GESTUREOS_SCROLL_SENSITIVITY` | `3` | Scroll clicks per frame |
 | `GESTUREOS_DRAG_HOLD_FRAMES` | `5` | Frames to hold fist before drag |
-| `GESTUREOS_CURSOR_SMOOTHING_ALPHA` | `0.4` | Cursor EMA smoothing (0 = none) |
+| `GESTUREOS_ONE_EURO_MIN_CUTOFF` | `1.0` | One Euro filter — smoothing at rest (Hz) |
+| `GESTUREOS_ONE_EURO_BETA` | `0.05` | One Euro filter — responsiveness to speed |
+| `GESTUREOS_ONE_EURO_D_CUTOFF` | `1.0` | One Euro filter — velocity smoothing (Hz) |
+| `GESTUREOS_CURSOR_DEAD_ZONE_PX` | `4` | Cursor dead zone in screen pixels (3–6 recommended) |
+| `GESTUREOS_HAND_LOST_GRACE_MS` | `200` | How long the hand may be absent before it's declared lost |
 | `GESTUREOS_VOLUME_STEP` | `0.05` | Volume change per tick |
 | `GESTUREOS_BRIGHTNESS_STEP` | `5` | Brightness change per tick |
 | `GESTUREOS_HAND_LANDMARKER_MODEL` | `models/hand_landmarker.task` | MediaPipe model path |

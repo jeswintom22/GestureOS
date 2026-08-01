@@ -17,7 +17,7 @@ import config
 from app.core.actions import ActionType
 from app.core.events import GestureEvent
 from app.gestures.detector import HandResult, Landmark
-from app.gestures.smoother import LandmarkSmoother
+from app.gestures.smoother import OneEuroFilter
 
 
 def _distance(a: Landmark, b: Landmark) -> float:
@@ -43,7 +43,7 @@ class GestureClassifier:
     """
 
     def __init__(self):
-        self._smoother = LandmarkSmoother(alpha=config.CURSOR_SMOOTHING_ALPHA)
+        self._smoother = OneEuroFilter()
 
         # Swipe detection — track palm centre over last N frames
         self._palm_history: deque[tuple[float, float, float]] = deque(maxlen=8)
@@ -54,6 +54,11 @@ class GestureClassifier:
 
         # Scroll tracking
         self._prev_scroll_y: Optional[float] = None
+
+        # Cursor feel — dead zone + re-entry anchoring
+        self._last_cursor_screen: Optional[tuple[int, int]] = None
+        self._reentry_offset: tuple[int, int] = (0, 0)
+        self._reentering: bool = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -104,10 +109,19 @@ class GestureClassifier:
             if self._fist_frames >= config.DRAG_HOLD_FRAMES and not self._dragging:
                 self._dragging = True
                 return GestureEvent(action=ActionType.DRAG_START)
-            # While dragging, still report cursor position
+            # While dragging, still report cursor position (smoothed + dead zone)
             if self._dragging:
-                sx, sy = self._map_to_screen(index_tip, frame_w, frame_h)
-                return GestureEvent(action=ActionType.MOVE_CURSOR, value=(sx, sy))
+                target = self._cursor_target(index_tip, frame_w, frame_h)
+                if target is not None:
+                    return GestureEvent(action=ActionType.MOVE_CURSOR, value=target)
+                # Held within the dead zone — keep re-reporting the held
+                # position so the HUD stays in the dragging state.
+                if self._last_cursor_screen is not None:
+                    return GestureEvent(
+                        action=ActionType.MOVE_CURSOR,
+                        value=self._last_cursor_screen,
+                    )
+                return GestureEvent(action=ActionType.NONE)
             return GestureEvent(action=ActionType.NONE)
 
         # --- If we leave fist, end drag ---
@@ -124,9 +138,10 @@ class GestureClassifier:
 
         # --- Index only → MOVE_CURSOR ---
         if fingers == [0, 1, 0, 0, 0]:
-            smoothed = self._smoother.smooth(index_tip, frame_w, frame_h)
-            sx, sy = self._map_to_screen(smoothed, frame_w, frame_h)
-            return GestureEvent(action=ActionType.MOVE_CURSOR, value=(sx, sy))
+            target = self._cursor_target(index_tip, frame_w, frame_h)
+            if target is None:
+                return GestureEvent(action=ActionType.NONE)
+            return GestureEvent(action=ActionType.MOVE_CURSOR, value=target)
 
         # --- Index + Middle → SCROLL ---
         if fingers == [0, 1, 1, 0, 0]:
@@ -155,6 +170,16 @@ class GestureClassifier:
         self._fist_frames = 0
         self._dragging = False
         self._prev_scroll_y = None
+        # The next hand that appears must re-anchor so the cursor doesn't
+        # teleport to wherever the hand re-enters the frame.
+        self._reentering = True
+        # NOTE: _last_cursor_screen is intentionally kept, so the cursor
+        # holds its position while the hand is away.
+
+    @property
+    def dragging(self) -> bool:
+        """True while a drag is in progress (for the caller to release on loss)."""
+        return self._dragging
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -185,6 +210,54 @@ class GestureClassifier:
         fingers.append(1 if lms[20].y < lms[18].y else 0)
 
         return fingers
+
+    def _cursor_target(
+        self,
+        landmark: Landmark,
+        frame_w: int,
+        frame_h: int,
+    ) -> Optional[tuple[int, int]]:
+        """
+        Map a landmark to the next cursor screen position.
+
+        Applies One Euro smoothing, re-entry anchoring (so a returning hand
+        does not teleport the cursor), and a screen-pixel dead zone (so a
+        still hand does not jitter). Returns ``None`` when the cursor should
+        hold its current position.
+        """
+        smoothed = self._smoother.smooth(landmark, frame_w, frame_h)
+        sx, sy = self._map_to_screen(smoothed, frame_w, frame_h)
+
+        # Re-entry: anchor the mapping so a returning hand resumes control
+        # relative to where the cursor already is, not wherever it appears.
+        if self._reentering:
+            if self._last_cursor_screen is not None:
+                self._reentry_offset = (
+                    self._last_cursor_screen[0] - sx,
+                    self._last_cursor_screen[1] - sy,
+                )
+            else:
+                self._reentry_offset = (0, 0)
+            self._reentering = False
+            return None
+
+        tx = sx + self._reentry_offset[0]
+        ty = sy + self._reentry_offset[1]
+        # Clamp into the visible screen area (never (0,0) — pyautogui failsafe)
+        tx = max(1, min(tx, config.SCREEN_WIDTH - 1))
+        ty = max(1, min(ty, config.SCREEN_HEIGHT - 1))
+
+        # Dead zone: suppress micro-movement while the hand is held still.
+        if self._last_cursor_screen is not None:
+            lx, ly = self._last_cursor_screen
+            if (
+                abs(tx - lx) <= config.CURSOR_DEAD_ZONE_PX
+                and abs(ty - ly) <= config.CURSOR_DEAD_ZONE_PX
+            ):
+                return None
+
+        self._last_cursor_screen = (tx, ty)
+        return (tx, ty)
 
     def _map_to_screen(
         self,
