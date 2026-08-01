@@ -166,3 +166,108 @@ def test_drag_reports_position_and_release_on_reset():
     # Hand loss → reset clears drag state (caller emits DRAG_END)
     classifier.reset()
     assert classifier.dragging is False
+
+
+def test_two_open_palms_detected():
+    """Two hands with all five fingers up → two_open_palms is True."""
+    classifier = GestureClassifier()
+    left = _make_dummy_hand([1, 1, 1, 1, 1])
+    right = _make_dummy_hand([1, 1, 1, 1, 1])
+
+    assert classifier.two_open_palms([left, right]) is True
+
+
+def test_two_open_palms_single_hand_is_false():
+    """A single open palm must not count as the two-hand gesture."""
+    classifier = GestureClassifier()
+    palm = _make_dummy_hand([1, 1, 1, 1, 1])
+
+    assert classifier.two_open_palms([palm]) is False
+    assert classifier.two_open_palms([]) is False
+
+
+def test_two_open_palms_mixed_pose_is_false():
+    """Palm + non-palm (e.g. fist) must not toggle the keyboard."""
+    classifier = GestureClassifier()
+    palm = _make_dummy_hand([1, 1, 1, 1, 1])
+    fist = _make_dummy_hand([0, 0, 0, 0, 0])
+
+    assert classifier.two_open_palms([palm, fist]) is False
+    assert classifier.two_open_palms([fist, palm]) is False
+
+
+def test_is_open_palm():
+    """is_open_palm is True only for the all-fingers-up pose."""
+    classifier = GestureClassifier()
+    assert classifier.is_open_palm(_make_dummy_hand([1, 1, 1, 1, 1])) is True
+    assert classifier.is_open_palm(_make_dummy_hand([0, 1, 0, 0, 0])) is False
+
+
+def test_typing_mode_allows_cursor_and_pinch():
+    """
+    In typing mode only cursor movement and pinch clicks are allowed
+    (dwell presses will hook in later).
+    """
+    classifier = GestureClassifier()
+
+    # Index only → MOVE_CURSOR still works
+    index = _make_dummy_hand([0, 1, 0, 0, 0])
+    event = classifier.classify(index, 640, 480, typing_mode=True)
+    assert event.action == ActionType.MOVE_CURSOR
+
+    # Pinch → LEFT_CLICK still works
+    pinch = _make_dummy_hand([1, 1, 0, 0, 0])
+    pinch.landmarks[4] = Landmark(0.5, 0.5, 0, 0, 0)
+    pinch.landmarks[8] = Landmark(0.51, 0.5, 0, 0, 0)
+    event = classifier.classify(pinch, 640, 480, typing_mode=True)
+    assert event.action == ActionType.LEFT_CLICK
+
+
+def test_typing_mode_suppresses_non_cursor_gestures():
+    """
+    While the keyboard is open, scroll / volume / brightness / swipe / drag
+    must be suppressed so aiming at keys doesn't trigger them.
+    """
+    classifier = GestureClassifier()
+
+    # Index + Middle → normally SCROLL; suppressed in typing mode
+    scroll = _make_dummy_hand([0, 1, 1, 0, 0])
+    assert classifier.classify(scroll, 640, 480, typing_mode=True).action == ActionType.NONE
+
+    # Thumb only → normally VOLUME; suppressed
+    thumb = _make_dummy_hand([1, 0, 0, 0, 0])
+    assert classifier.classify(thumb, 640, 480, typing_mode=True).action == ActionType.NONE
+
+    # Thumb+Index+Pinky → normally BRIGHTNESS; suppressed
+    bright = _make_dummy_hand([1, 1, 0, 0, 1])
+    assert classifier.classify(bright, 640, 480, typing_mode=True).action == ActionType.NONE
+
+    # Open palm swipe → normally SWITCH_WINDOW after enough frames; suppressed
+    palm = _make_dummy_hand([1, 1, 1, 1, 1])
+    for _ in range(6):
+        event = classifier.classify(palm, 640, 480, typing_mode=True)
+    assert event.action == ActionType.NONE
+
+    # Fist → normally DRAG after hold frames; suppressed
+    fist = _make_dummy_hand([0, 0, 0, 0, 0])
+    for _ in range(config.DRAG_HOLD_FRAMES):
+        event = classifier.classify(fist, 640, 480, typing_mode=True)
+    assert event.action == ActionType.NONE
+    assert classifier.dragging is False
+
+
+def test_typing_mode_releases_drag_in_progress():
+    """
+    If a drag was active when typing mode starts, the classifier must emit
+    DRAG_END so the mouse button doesn't stay held.
+    """
+    classifier = GestureClassifier()
+    fist = _make_dummy_hand([0, 0, 0, 0, 0])
+
+    for _ in range(config.DRAG_HOLD_FRAMES):
+        classifier.classify(fist, 640, 480)
+    assert classifier.dragging is True
+
+    event = classifier.classify(fist, 640, 480, typing_mode=True)
+    assert event.action == ActionType.DRAG_END
+    assert classifier.dragging is False

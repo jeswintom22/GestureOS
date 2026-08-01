@@ -61,8 +61,25 @@ _COMMAND_TABLE: list[tuple[list[str], ActionType, Optional[str]]] = [
     (["shut down", "exit", "quit", "stop"], ActionType.STOP, None),
 ]
 
+# --- Virtual keyboard / dictation toggles ---------------------------------
+# Checked BEFORE the "open <app>" regex so that "open keyboard" is parsed as
+# KEYBOARD_OPEN (not OPEN_APP value "keyboard") and "start typing" is parsed
+# as DICTATION_ON (not OPEN_APP value "typing"). Order inside the list
+# matters: "hide keyboard" must match before the bare "keyboard" pattern.
+_KEYBOARD_COMMANDS: list[tuple[list[str], ActionType, Optional[str]]] = [
+    (["hide keyboard", "close keyboard"], ActionType.KEYBOARD_CLOSE, None),
+    (["show keyboard", "open keyboard", "keyboard"], ActionType.KEYBOARD_OPEN, None),
+    (["start typing", "start dictation"], ActionType.DICTATION_ON, None),
+    (["stop typing", "stop dictation"], ActionType.DICTATION_OFF, None),
+]
+
 # Pre-compile the "open <app>" pattern
 _OPEN_APP_RE = re.compile(r"^(?:open|launch|start|run)\s+(.+)$", re.IGNORECASE)
+
+# Pre-compile the "type <text>" one-shot dictation pattern. Checked BEFORE the
+# keyword table so "type next" types the word "next" instead of triggering
+# the media "next" command.
+_TYPE_TEXT_RE = re.compile(r"^type\s+(.+)$", re.IGNORECASE)
 
 
 class CommandParser:
@@ -86,7 +103,28 @@ class CommandParser:
         if not text:
             return None
 
-        # --- Check "open <app>" first ---
+        # --- "type <text>" one-shot dictation ---
+        m = _TYPE_TEXT_RE.match(text)
+        if m:
+            return GestureEvent(
+                action=ActionType.TYPED_TEXT,
+                value=m.group(1).strip(),
+                source="voice",
+            )
+
+        # --- Virtual keyboard / dictation toggles (before "open <app>") ---
+        for patterns, action, _ in _KEYBOARD_COMMANDS:
+            for pattern in patterns:
+                # Bare single words (e.g. "keyboard") must be the whole
+                # utterance, so "keyboard settings" or dictation like "the
+                # keyboard is stuck" can't accidentally toggle it.
+                # Multi-word phrases still match as substrings, consistent
+                # with the keyword table.
+                matched = text == pattern if " " not in pattern else pattern in text
+                if matched:
+                    return GestureEvent(action=action, source="voice")
+
+        # --- Check "open <app>" next ---
         m = _OPEN_APP_RE.match(text)
         if m:
             app_name = m.group(1).strip()

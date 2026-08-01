@@ -15,7 +15,8 @@ import threading
 from typing import Optional
 
 import config
-from app.core.events import EventBus
+from app.core.actions import ActionType
+from app.core.events import EventBus, GestureEvent
 from app.voice.parser import CommandParser
 
 log = logging.getLogger(__name__)
@@ -24,6 +25,11 @@ log = logging.getLogger(__name__)
 class VoiceEngine:
     """
     Offline voice command engine using Vosk.
+
+    In addition to parsed commands, supports a dictation mode: while enabled
+    (via the "start typing" / "stop typing" commands), every recognised
+    utterance that isn't a command is pushed as a ``TYPED_TEXT`` event so it
+    can be typed into the focused app.
 
     Usage::
 
@@ -38,6 +44,8 @@ class VoiceEngine:
         self._parser = CommandParser()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # Dictation mode: while True, non-command speech becomes TYPED_TEXT.
+        self._dictation_on = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -120,10 +128,9 @@ class VoiceEngine:
                     if config.DEBUG_LOG_VOICE:
                         log.info("Voice: %r", text)
 
-                    event = self._parser.parse(text)
-                    if event:
+                    event = self._handle_utterance(text)
+                    if event is not None:
                         self._bus.push(event)
-                        log.info("Voice command: %s", event.action.name)
 
         except Exception:
             log.exception("VoiceEngine error")
@@ -131,3 +138,40 @@ class VoiceEngine:
             stream.stop_stream()
             stream.close()
             pa.terminate()
+
+    # ------------------------------------------------------------------
+    # Utterance handling (also used directly by tests)
+    # ------------------------------------------------------------------
+
+    def _handle_utterance(self, text: str) -> Optional[GestureEvent]:
+        """
+        Turn one recognised utterance into a ``GestureEvent`` (or ``None``).
+
+        Commands are parsed normally. ``DICTATION_ON`` / ``DICTATION_OFF``
+        toggle dictation mode (the events are still pushed to the bus so the
+        HUD can show the state). While dictation is on, any utterance that
+        is not a recognised command becomes a ``TYPED_TEXT`` event.
+
+        Note: the returned event is pushed by the caller, not here.
+        """
+        event = self._parser.parse(text)
+        if event is not None:
+            if event.action == ActionType.DICTATION_ON:
+                self._dictation_on = True
+                log.info("Dictation ON")
+            elif event.action == ActionType.DICTATION_OFF:
+                self._dictation_on = False
+                log.info("Dictation OFF")
+            if event.action == ActionType.TYPED_TEXT:
+                log.info("Dictation text: %r", event.value)
+            else:
+                log.info("Voice command: %s", event.action.name)
+            return event
+
+        if self._dictation_on:
+            return GestureEvent(
+                action=ActionType.TYPED_TEXT,
+                value=text,
+                source="voice",
+            )
+        return None

@@ -69,6 +69,7 @@ class GestureClassifier:
         hand: HandResult,
         frame_w: int,
         frame_h: int,
+        typing_mode: bool = False,
     ) -> GestureEvent:
         """
         Classify one hand detection into a GestureEvent.
@@ -79,6 +80,11 @@ class GestureClassifier:
             The detected hand.
         frame_w, frame_h : int
             Camera frame dimensions (pixels).
+        typing_mode : bool
+            When True (virtual keyboard open), only cursor movement, pinch
+            clicks and dwell presses are emitted; scroll / volume /
+            brightness / swipe / drag are suppressed so aiming at keys
+            cannot trigger unrelated actions.
 
         Returns
         -------
@@ -89,6 +95,26 @@ class GestureClassifier:
         index_tip = lms[8]
         thumb_tip = lms[4]
         middle_tip = lms[12]
+
+        # --- Typing mode: cursor + pinch only (dwell hooks in later) ---
+        if typing_mode:
+            # If a drag was in progress, release it — drags are suppressed
+            # while typing.
+            if self._dragging:
+                self._dragging = False
+                self._fist_frames = 0
+                return GestureEvent(action=ActionType.DRAG_END)
+            # Pinch → LEFT_CLICK (tap a key on the on-screen keyboard)
+            if _distance(thumb_tip, index_tip) < config.PINCH_THRESHOLD:
+                return GestureEvent(action=ActionType.LEFT_CLICK)
+            # Index only → MOVE_CURSOR (aim at keys)
+            if fingers == [0, 1, 0, 0, 0]:
+                target = self._cursor_target(index_tip, frame_w, frame_h)
+                if target is None:
+                    return GestureEvent(action=ActionType.NONE)
+                return GestureEvent(action=ActionType.MOVE_CURSOR, value=target)
+            # Everything else is suppressed while typing
+            return GestureEvent(action=ActionType.NONE)
 
         # --- Swipe detection (must check before individual gestures) ---
         swipe = self._detect_swipe(lms)
@@ -180,6 +206,21 @@ class GestureClassifier:
     def dragging(self) -> bool:
         """True while a drag is in progress (for the caller to release on loss)."""
         return self._dragging
+
+    # ------------------------------------------------------------------
+    # Multi-hand helpers (virtual keyboard open/close gesture)
+    # ------------------------------------------------------------------
+
+    def is_open_palm(self, hand: HandResult) -> bool:
+        """True if the hand is an open palm (all five fingers extended)."""
+        return self._fingers_up(hand.landmarks) == [1, 1, 1, 1, 1]
+
+    def two_open_palms(self, hands: list[HandResult]) -> bool:
+        """
+        True if at least two hands are detected and the first two are both
+        open palms — the gesture that opens/closes the virtual keyboard.
+        """
+        return len(hands) >= 2 and all(self.is_open_palm(h) for h in hands[:2])
 
     # ------------------------------------------------------------------
     # Internal helpers

@@ -25,6 +25,7 @@ from app.actions.executor import ActionExecutor
 from app.camera.camera import Camera
 from app.core.actions import ActionType
 from app.core.events import EventBus, GestureEvent
+from app.core.toggle import ToggleGate
 from app.gestures.classifier import GestureClassifier
 from app.gestures.detector import HandDetector
 from app.hud.overlay import HUD
@@ -77,6 +78,12 @@ class GestureOSController:
         # grace period).
         self._last_hand_time = 0.0
         self._hand_lost = True
+
+        # Virtual keyboard (typing mode): two open palms toggles it. The
+        # pose must be released before it can trigger again, and a short
+        # cooldown prevents double-toggles (see ToggleGate).
+        self._typing_mode = False
+        self._keyboard_toggle = ToggleGate(cooldown_ms=config.KEYBOARD_TOGGLE_COOLDOWN_MS)
 
     def start(self) -> None:
         """Start background threads and HUD."""
@@ -131,8 +138,18 @@ class GestureOSController:
                         self._hand_lost = False
                         log.debug("Hand re-acquired")
 
-                    # Classify first hand
-                    event = self.classifier.classify(hands[0], w, h)
+                    # Two open palms toggles the virtual keyboard (debounced
+                    # so holding the pose doesn't flicker it).
+                    if self._keyboard_toggle.trigger(
+                        self.classifier.two_open_palms(hands)
+                    ):
+                        self._toggle_typing_mode()
+
+                    # Classify first hand (typing mode suppresses non-cursor
+                    # gestures so aiming at keys doesn't trigger them)
+                    event = self.classifier.classify(
+                        hands[0], w, h, typing_mode=self._typing_mode
+                    )
 
                     # Handle system-level toggles directly or push to bus
                     if event.action == ActionType.GESTURE_OFF:
@@ -145,15 +162,14 @@ class GestureOSController:
                         self.bus.push(event)
 
                 elif not hands and self.gesture_enabled:
+                    lost_for_ms = (time.monotonic() - self._last_hand_time) * 1000
+
                     # Grace period: only declare the hand "lost" after it has
                     # been absent for HAND_LOST_GRACE_MS. This tolerates brief
                     # tracking blips without freezing the cursor — the
                     # classifier is NOT reset during grace, so a returning
                     # hand resumes seamlessly.
-                    if not self._hand_lost and (
-                        (time.monotonic() - self._last_hand_time) * 1000
-                        >= config.HAND_LOST_GRACE_MS
-                    ):
+                    if not self._hand_lost and lost_for_ms >= config.HAND_LOST_GRACE_MS:
                         self._hand_lost = True
                         log.info("Hand lost")
                         self.bus.push(GestureEvent(action=ActionType.HAND_LOST))
@@ -164,6 +180,20 @@ class GestureOSController:
                             log.info("Releasing drag after hand loss")
                             self.bus.push(GestureEvent(action=ActionType.DRAG_END))
                         self.classifier.reset()
+                        # Re-arm the keyboard toggle gate so a later two-palms
+                        # presentation can re-open the keyboard (e.g. after an
+                        # idle-close). Safe here: this branch only runs when no
+                        # hands are present, so it can't double-toggle a held pose.
+                        self._keyboard_toggle.trigger(False)
+
+                    # Idle-close: if the hand stays gone past the (longer)
+                    # keyboard idle timeout, close the virtual keyboard too.
+                    if (
+                        self._typing_mode
+                        and lost_for_ms >= config.KEYBOARD_IDLE_CLOSE_MS
+                    ):
+                        log.info("Closing keyboard after prolonged hand loss")
+                        self._close_typing_mode()
 
                 # Optional debug window
                 if self.debug or config.DEBUG_SHOW_CAMERA:
@@ -195,8 +225,58 @@ class GestureOSController:
         if self.voice_engine:
             self.voice_engine.stop()
 
+        # Close the virtual keyboard if it's open, so an OSK isn't left
+        # dangling after shutdown.
+        if self._typing_mode:
+            self._close_typing_mode()
+
         self.executor.stop()
         log.info("GestureOS stopped")
+
+    # ------------------------------------------------------------------
+    # Virtual keyboard (typing mode)
+    # ------------------------------------------------------------------
+
+    @property
+    def typing_mode(self) -> bool:
+        """True while the virtual keyboard is open (dwell typing active)."""
+        return self._typing_mode
+
+    def _toggle_typing_mode(self) -> None:
+        """Flip the virtual keyboard open/closed (two-palms gesture)."""
+        if self._typing_mode:
+            self._close_typing_mode()
+        else:
+            self._open_typing_mode()
+
+    def _open_typing_mode(self) -> None:
+        """Open the virtual keyboard and switch the classifier to typing mode."""
+        if self._typing_mode:
+            return
+        self._typing_mode = True
+        log.info("Typing mode ON — opening keyboard")
+        # Release any in-progress drag so the button doesn't stay held while
+        # the keyboard opens, and reset transient classifier state (fist
+        # hold counter, palm history, scroll anchor) so nothing leaks into
+        # typing mode.
+        if self.classifier:
+            if self.classifier.dragging:
+                log.info("Releasing drag on typing mode entry")
+                self.bus.push(GestureEvent(action=ActionType.DRAG_END))
+            self.classifier.reset()
+        self.bus.push(GestureEvent(action=ActionType.KEYBOARD_OPEN))
+
+    def _close_typing_mode(self) -> None:
+        """Close the virtual keyboard and restore normal gesture handling."""
+        if not self._typing_mode:
+            return
+        self._typing_mode = False
+        log.info("Typing mode OFF — closing keyboard")
+        # NOTE: do NOT re-arm the toggle gate here — the two-palms pose that
+        # just closed the keyboard is still held, so re-arming would fire
+        # again next frame and instantly re-open it. The gate re-arms itself
+        # once the pose is released.
+        self.bus.push(GestureEvent(action=ActionType.KEYBOARD_CLOSE))
 
 
 def parse_args():

@@ -105,7 +105,10 @@ CAMERA_FPS: int = _env_int("GESTUREOS_CAMERA_FPS", 30)
 # ---------------------------------------------------------------------------
 # MediaPipe Hands
 # ---------------------------------------------------------------------------
-MP_MAX_HANDS: int = _env_int("GESTUREOS_MP_MAX_HANDS", 1)
+# Default is 2 so the two-open-palms "show keyboard" gesture is detectable.
+# Tracking a second hand costs some FPS on laptop webcams; set back to 1 if
+# performance matters more than the two-hand gesture.
+MP_MAX_HANDS: int = _env_int("GESTUREOS_MP_MAX_HANDS", 2)
 MP_MIN_DETECTION_CONFIDENCE: float = _env_float("GESTUREOS_MP_MIN_DETECTION_CONFIDENCE", 0.7)
 MP_MIN_TRACKING_CONFIDENCE: float = _env_float("GESTUREOS_MP_MIN_TRACKING_CONFIDENCE", 0.7)
 
@@ -134,6 +137,24 @@ ONE_EURO_D_CUTOFF: float = _env_float("GESTUREOS_ONE_EURO_D_CUTOFF", 1.0)
 CURSOR_DEAD_ZONE_PX: int = _env_int("GESTUREOS_CURSOR_DEAD_ZONE_PX", 4)
 CURSOR_DEAD_ZONE: float = _env_float("GESTUREOS_CURSOR_DEAD_ZONE", 0.02)
 CURSOR_FRAME_MARGIN: float = _env_float("GESTUREOS_CURSOR_FRAME_MARGIN", 0.1)
+
+# ---------------------------------------------------------------------------
+# Virtual Keyboard (dwell typing + Windows OSK)
+# ---------------------------------------------------------------------------
+# Hold the cursor still this long (ms) on a key before it presses.
+DWELL_MS: int = _env_int("GESTUREOS_DWELL_MS", 500)
+# After a dwell press, the hand must move beyond the dead zone (and this much
+# time must pass) before another dwell press can fire — prevents auto-repeat.
+DWELL_REPEAT_GUARD_MS: int = _env_int("GESTUREOS_DWELL_REPEAT_GUARD_MS", 400)
+# The two-open-palms pose must be released for this long before it can toggle
+# the keyboard again (prevents the same pose from instantly re-closing it).
+KEYBOARD_TOGGLE_COOLDOWN_MS: int = _env_int("GESTUREOS_KEYBOARD_TOGGLE_COOLDOWN_MS", 1500)
+# If the hand stays lost this long (ms) while the keyboard is open, close it.
+KEYBOARD_IDLE_CLOSE_MS: int = _env_int("GESTUREOS_KEYBOARD_IDLE_CLOSE_MS", 10000)
+# Windows On-Screen Keyboard executable (absolute path or on PATH).
+OSK_PATH: str = _env_str("GESTUREOS_OSK_PATH", "osk.exe")
+# Beep on each dwell keypress.
+KEYBOARD_SOUND: bool = _env_bool("GESTUREOS_KEYBOARD_SOUND", True)
 
 # ---------------------------------------------------------------------------
 # Volume & Brightness

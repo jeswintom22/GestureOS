@@ -46,6 +46,13 @@ class ActionType(Enum):
     OPEN_APP = auto()
     SCREENSHOT = auto()
 
+    # --- Virtual Keyboard ---
+    KEYBOARD_OPEN = auto()       # Launch the Windows OSK + enter typing mode
+    KEYBOARD_CLOSE = auto()      # Close the OSK + leave typing mode
+    TYPED_TEXT = auto()          # Type a string into the focused app (value: str)
+    DICTATION_ON = auto()        # Start voice dictation mode
+    DICTATION_OFF = auto()       # Stop voice dictation mode
+
     # --- System ---
     GESTURE_ON = auto()
     GESTURE_OFF = auto()

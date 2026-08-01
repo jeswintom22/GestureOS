@@ -93,7 +93,7 @@ Key variables:
 | `GESTUREOS_QUIET_THIRD_PARTY_WARNINGS` | `true` | Silence noisy library warnings (e.g. brightness EDID) |
 | `GESTUREOS_CAMERA_INDEX` | `0` | Webcam device index |
 | `GESTUREOS_CAMERA_WIDTH` / `GESTUREOS_CAMERA_HEIGHT` | `640` / `480` | Capture resolution |
-| `GESTUREOS_MP_MAX_HANDS` | `1` | Hands tracked simultaneously |
+| `GESTUREOS_MP_MAX_HANDS` | `2` | Hands tracked simultaneously (2 enables the two-palms keyboard gesture; costs some FPS) |
 | `GESTUREOS_PINCH_THRESHOLD` | `0.05` | Pinch distance for click |
 | `GESTUREOS_RIGHT_CLICK_THRESHOLD` | `0.05` | Middle–thumb distance for right-click |
 | `GESTUREOS_SCROLL_SENSITIVITY` | `3` | Scroll clicks per frame |
@@ -106,8 +106,21 @@ Key variables:
 | `GESTUREOS_VOLUME_STEP` | `0.05` | Volume change per tick |
 | `GESTUREOS_BRIGHTNESS_STEP` | `5` | Brightness change per tick |
 | `GESTUREOS_HAND_LANDMARKER_MODEL` | `models/hand_landmarker.task` | MediaPipe model path |
+
+> **Virtual keyboard (in development)**: the gesture keyboard feature adds
+> dwell-typing on the Windows on-screen keyboard, opened/closed with a
+> two-open-palms gesture (requires `GESTUREOS_MP_MAX_HANDS=2`, the new default)
+> plus voice commands (`"show keyboard"`, `"hide keyboard"`, `"type <text>"`).
+> These knobs are config groundwork for the feature — see
+> `gesture-keyboard-voice-spec.md` for the full plan.
 | `GESTUREOS_VOSK_MODEL_PATH` | `models/vosk-model-small-en-us-0.15` | Vosk model path |
 | `GESTUREOS_HUD_BG_COLOR` / `GESTUREOS_HUD_TEXT_COLOR` | `#1a1a2e` / `#00ff88` | HUD colours (hex) |
+| `GESTUREOS_DWELL_MS` | `500` | Hold the cursor still this long (ms) on a keyboard key before it presses |
+| `GESTUREOS_DWELL_REPEAT_GUARD_MS` | `400` | Cooldown / must-move before another dwell press can fire |
+| `GESTUREOS_KEYBOARD_TOGGLE_COOLDOWN_MS` | `1500` | Two-palms pose must be released this long (ms) before re-toggling the keyboard |
+| `GESTUREOS_KEYBOARD_IDLE_CLOSE_MS` | `10000` | Auto-close the keyboard if the hand stays lost this long (ms) |
+| `GESTUREOS_OSK_PATH` | `osk.exe` | Windows On-Screen Keyboard executable |
+| `GESTUREOS_KEYBOARD_SOUND` | `true` | Beep on each dwell keypress |
 | `GESTUREOS_DEBUG_SHOW_CAMERA` | `false` | Always show the debug preview window |
 
 See `.env.example` for the complete list of all supported variables.
